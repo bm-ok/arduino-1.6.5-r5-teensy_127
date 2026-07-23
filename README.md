@@ -1,31 +1,19 @@
 # arduino-1.6.5-r5-teensy_127
 
+Expects `libraries/` and `OnlyKey-Firmware/` checked out as siblings of this
+directory, not nested inside it.
 
-Build Docker Image for building
+Build the Docker toolchain image (one-time, or after `Dockerfile` changes)
 ```
 make docker-build-toolchain
 ```
 
-build firmware
+Build firmware from the local `../libraries` and `../OnlyKey-Firmware` checkouts
 ```
 make docker-build
 ```
 
-build firmware from local files
+Output `.hex` files land in `builds/`; print them with
 ```
-make docker-build-local
-```
-
-Build firmware from fork(default is trustcrypto) and branch(default is master)
-```
-fork=trustcrypto branch=master make docker-build
-```
-
-Build firmware from tag
-```
-branch=v0.2-beta.8 make docker-build
-```
-Need to get the source for local dev?
-```
-make get-master
+make show-build
 ```
