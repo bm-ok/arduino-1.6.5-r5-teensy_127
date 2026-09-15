@@ -1,0 +1,73 @@
+# Toolchain image for building OnlyKey firmware on a Raspberry Pi.
+#
+# Same packages as the Dockerfile beside this one, which is left alone because
+# it works on an ordinary x86-64 host. Two changes, both forced by the fact that
+# this image is amd64 running under qemu-user emulation on an aarch64 kernel.
+#
+#
+# 1. ldconfig is neutered, because it SEGFAULTS under emulation
+#
+# Measured, not guessed. The unmodified Dockerfile got 30 minutes into its apt
+# install, placed every package, and died on the very last step:
+#
+#     Processing triggers for libc-bin (2.31-0ubuntu9.17) ...
+#     qemu: uncaught target signal 11 (Segmentation fault) - core dumped
+#     dpkg: error processing package libc-bin (--configure):
+#      installed libc-bin package post-installation script subprocess
+#      returned error exit status 139         <- 128 + SIGSEGV
+#
+# That trigger is ldconfig. It is a long-standing qemu-user bug: ldconfig walks
+# the library path doing things with mmap that the emulator does not survive.
+# Nothing about the packages or this project is at fault, and no amount of
+# retrying changes it.
+#
+# On Debian and Ubuntu, /sbin/ldconfig is a wrapper that dpkg diverts to
+# /sbin/ldconfig.real, so pointing the real one at /bin/true is what actually
+# takes effect. It must happen BEFORE the install, since the crash is in a
+# postinst trigger.
+#
+# What that costs: /etc/ld.so.cache is not regenerated, so the dynamic loader
+# falls back to searching its default directories. Ubuntu puts essentially
+# everything in /usr/lib/x86_64-linux-gnu, which is one of those, and the JVM
+# finds its own libraries by rpath - so for this image it costs nothing we use.
+#
+#
+# 2. The install is split across several RUN layers
+#
+# Under emulation each step takes ten to twenty times as long as it would
+# natively. One monolithic RUN means any failure - like the one above - throws
+# away every minute spent before it, because BuildKit caches successful layers
+# only. Splitting it means a failure in the expensive arduino step does not
+# re-run build-essential. That is worth more here than a tidy image.
+
+FROM ubuntu:focal
+
+RUN if [ -e /sbin/ldconfig.real ]; then \
+      ln -sf /bin/true /sbin/ldconfig.real; \
+    else \
+      ln -sf /bin/true /sbin/ldconfig; \
+    fi
+
+RUN ln -fs /usr/share/zoneinfo/America/New_York /etc/localtime \
+ && apt-get update
+
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    ca-certificates \
+    make \
+    wget \
+    bzip2 \
+    git \
+    curl \
+    build-essential
+
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    xvfb
+
+# The heavy one: arduino drags in the whole GTK, Mono and Java stack - over 200
+# packages. Its own layer, so a failure here does not cost the rest.
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    arduino \
+    libgtk2.0 \
+    libjssc-java \
+    libjss-java \
+ && rm -rf /var/lib/apt/lists/*
